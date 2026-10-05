@@ -24,7 +24,7 @@ services:
 
   # Static frontend (Vue app), served by nginx. Unprivileged, no host access.
   frontend:
-    image: ghcr.io/rubtatex/slvctrlplus-frontend:latest
+    image: ghcr.io/OWNER/slvctrlplus-frontend:latest
     restart: on-failure
 
   # Node.js backend. The frontend's Settings screen stores the backend URL
@@ -34,7 +34,7 @@ services:
   # "http://<umbrel-ip-or-hostname>:1337" in that Settings screen after
   # first install.
   server:
-    image: ghcr.io/rubtatex/slvctrlplus-server:latest
+    image: ghcr.io/OWNER/slvctrlplus-server:latest
     restart: on-failure
     # network_mode: host + privileged: true together reproduce the same
     # hardware access the upstream install-rpi.sh script gets when it runs

@@ -8,9 +8,20 @@
 # musl libc would not load those binaries.
 FROM node:24-bookworm-slim
 
+# libasound2/libusb-1.0-0/libudev1/libbluetooth3/libdbus-1-3: runtime shared
+# libraries the native Node addons (speaker/usb/noble) dlopen() at startup —
+# this is an apt-get fix, not an npm one. Without libasound2 in particular,
+# the process crashes immediately with "ERR_DLOPEN_FAILED: libasound.so.2:
+# cannot open shared object file", before the HTTP/WebSocket server ever
+# binds to its port.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         wget \
         ca-certificates \
+        libasound2 \
+        libusb-1.0-0 \
+        libudev1 \
+        libbluetooth3 \
+        libdbus-1-3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

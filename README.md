@@ -16,6 +16,41 @@ Conversion non-officielle du script `install-rpi.sh` de SlvCtrl+ en app Umbrel.
         └── nginx.conf
 ```
 
+## Mise à jour : le serveur plantait au démarrage (libasound.so.2)
+
+Après l'install réussie, le frontend affichait "Cannot connect to server" en
+boucle. Cause : `slvctrlplus_server_1` plantait immédiatement au démarrage
+(rien n'écoutait sur le port 1337) avec :
+
+```
+Error: libasound.so.2: cannot open shared object file: No such file or directory
+    at ... (/app/node_modules/speaker/index.js:9:42)
+```
+
+Le module natif du paquet `speaker` (sortie audio) a besoin d'ALSA au
+runtime — une bibliothèque système, pas une dépendance npm. `server/Dockerfile`
+installe maintenant `libasound2`, `libusb-1.0-0`, `libudev1`, `libbluetooth3`
+et `libdbus-1-3` (les mêmes libs couvrent aussi `usb` et
+`@stoprocent/noble`, qui auraient planté pareil dès leur premier usage).
+
+**Pour appliquer le correctif** : remplace `server/Dockerfile` dans ton repo
+par la version mise à jour, commit + push sur `main` (l'Action se relance
+automatiquement), puis une fois l'Action verte, force Umbrel à retélécharger
+l'image (un simple "Restart" ne suffit pas, Docker ne re-pull pas tout seul
+une image `:latest` déjà présente localement) :
+
+```bash
+ssh -p 40000 antoine@192.168.1.137
+cd /home/umbrel/umbrel/app-data/slvctrlplus
+sudo docker compose pull server
+sudo docker compose up -d --force-recreate --no-deps server
+sudo docker logs --tail 50 slvctrlplus_server_1
+```
+
+Le dernier `docker logs` doit maintenant rester silencieux (pas de crash
+loop) — vérifie aussi `sudo ss -tlnp | grep 1337` pour confirmer que le port
+écoute.
+
 ## Ce qui a changé depuis la première version
 
 Ton install a échoué avec :
