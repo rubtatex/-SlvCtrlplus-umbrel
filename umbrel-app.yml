@@ -1,0 +1,56 @@
+manifestVersion: 1
+id: slvctrlplus
+storage:
+  dataRoot: data
+category: automation
+name: SlvCtrl+
+version: "1.0.0"
+tagline: Control serial, USB and Bluetooth LE hardware devices from a web UI
+description: >-
+  SlvCtrl+ is a self-hosted server and web UI for building and controlling
+  custom hardware devices (DIY peripherals, servos, sensors, Buttplug.io /
+  Bluetooth LE toys, etc.) over a serial (UART/USB), generic USB, or
+  Bluetooth LE connection.
+
+
+  This package is an unofficial, self-built conversion of the project's
+  "install-rpi.sh" script (which installs it directly on a Raspberry Pi) into
+  an Umbrel app. There is no official Docker image, so the server and
+  frontend containers are built locally from the same prebuilt release
+  tarballs the install script downloads.
+
+
+  **First run**
+
+  Open the app, then go to its Settings screen and set the backend URL to
+  "http://<umbrel-ip-or-hostname>:1337". The web UI talks to the server
+  directly over REST and WebSocket on that port, not through this app's main
+  page, so this step is required before anything else works.
+
+
+  **Hardware access**
+
+  The server container runs with full device and host-network access
+  (privileged mode + host networking) so it can reach serial/USB ports and
+  the Bluetooth adapter, mirroring what the upstream install script gets
+  when installed directly on the Pi. If your device is wired to the Pi's
+  GPIO serial pins rather than plugged in as USB, you still need to enable
+  the hardware UART once on the host yourself, outside of Umbrel, via
+  "sudo raspi-config" (Interface Options > Serial Port).
+releaseNotes: ""
+
+developer: SlvCtrlPlus
+website: https://github.com/SlvCtrlPlus
+dependencies: []
+repo: https://github.com/SlvCtrlPlus/slvctrlplus-server
+support: https://github.com/SlvCtrlPlus/slvctrlplus-server/issues
+
+port: 4337
+gallery: []
+path: ""
+
+defaultUsername: ""
+defaultPassword: ""
+
+submitter: Antoine
+submission: ""

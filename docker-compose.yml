@@ -1,0 +1,65 @@
+# SlvCtrl+ — personal/community Umbrel package.
+#
+# Neither slvctrlplus-server nor slvctrlplus-frontend publish an official
+# Docker image, so both services here are BUILT LOCALLY from the same
+# prebuilt "dist.tar.gz" release tarballs that install-rpi.sh downloads
+# (see server/Dockerfile and frontend/Dockerfile). That means this package
+# does not meet the official Umbrel App Store rule that forbids `build:`
+# and requires pre-pushed, digest-pinned, multi-arch images — it is meant
+# for a personal app-data folder or your own community app store, not for
+# submission to https://github.com/getumbrel/umbrel-apps as-is. To make it
+# store-compliant later, build+push multi-arch images to a registry (e.g.
+# ghcr.io) and replace each `build:` with a pinned `image:`.
+
+services:
+
+  # Umbrel's reverse proxy. Routes the app's main page (manifest `port`) to
+  # the frontend's nginx on its internal port 80.
+  app_proxy:
+    environment:
+      APP_HOST: slvctrlplus_frontend_1
+      APP_PORT: 80
+
+  # Static frontend (Vue app), served by nginx. Unprivileged, no host access.
+  frontend:
+    build: ./frontend
+    restart: on-failure
+
+  # Node.js backend. The frontend's Settings screen stores the backend URL
+  # in the browser's own localStorage and talks to it directly over REST +
+  # Socket.IO — it does NOT go through app_proxy/nginx. So this service
+  # needs to be reachable on its own, fixed port: enter
+  # "http://<umbrel-ip-or-hostname>:1337" in that Settings screen after
+  # first install.
+  server:
+    build: ./server
+    restart: on-failure
+    # network_mode: host + privileged: true together reproduce the same
+    # hardware access the upstream install-rpi.sh script gets when it runs
+    # directly on the Pi:
+    #   - privileged: true   -> lets the container see host device nodes
+    #                           (USB-serial adapters, GPIO UART, generic USB)
+    #   - network_mode: host -> Bluetooth LE (noble/buttplug) talks to BlueZ
+    #                           over the host's D-Bus/HCI socket, which
+    #                           Docker cannot bridge into an isolated network
+    #                           namespace
+    # This is broader host access than a typical Umbrel app and is only
+    # justified because SlvCtrl+'s whole purpose is talking to local
+    # hardware. If you only ever use a USB-serial adapter and never
+    # Bluetooth, you can replace both lines with:
+    #   privileged: true
+    #   volumes:
+    #     - ${APP_DATA_DIR}/data:/data
+    #     - /run/udev:/run/udev:ro
+    #   ports:
+    #     - "1337:1337/tcp"
+    network_mode: host
+    privileged: true
+    environment:
+      PORT: "1337"
+      LOG_LEVEL: "info"
+      DATA_PATH: /data
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+      - /run/udev:/run/udev:ro
+      - /var/run/dbus:/var/run/dbus
