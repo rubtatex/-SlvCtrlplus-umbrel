@@ -1,15 +1,17 @@
 # SlvCtrl+ — personal/community Umbrel package.
 #
-# Neither slvctrlplus-server nor slvctrlplus-frontend publish an official
-# Docker image, so both services here are BUILT LOCALLY from the same
-# prebuilt "dist.tar.gz" release tarballs that install-rpi.sh downloads
-# (see server/Dockerfile and frontend/Dockerfile). That means this package
-# does not meet the official Umbrel App Store rule that forbids `build:`
-# and requires pre-pushed, digest-pinned, multi-arch images — it is meant
-# for a personal app-data folder or your own community app store, not for
-# submission to https://github.com/getumbrel/umbrel-apps as-is. To make it
-# store-compliant later, build+push multi-arch images to a registry (e.g.
-# ghcr.io) and replace each `build:` with a pinned `image:`.
+# umbrelOS's app installer only PULLS images, it does not build Dockerfiles
+# itself — a compose file with `build:` and no `image:` fails during
+# `app-script install` (docker-compose "pull" has nothing to fetch). Neither
+# slvctrlplus-server nor slvctrlplus-frontend publish an official image, so
+# ../.github/workflows/build-images.yml builds server/Dockerfile and
+# frontend/Dockerfile for linux/amd64+linux/arm64 and pushes them to GHCR;
+# this file just references the result.
+#
+# >>> REPLACE "OWNER" BELOW with your GitHub username/org (lowercase) once
+#     you've pushed this repo and the Action has run at least once, and make
+#     sure both packages are set to Public visibility on GitHub (Profile/Org
+#     -> Packages) — umbrelOS pulls anonymously, without credentials.
 
 services:
 
@@ -22,7 +24,7 @@ services:
 
   # Static frontend (Vue app), served by nginx. Unprivileged, no host access.
   frontend:
-    build: ./frontend
+    image: ghcr.io/rubtatex/slvctrlplus-frontend:latest
     restart: on-failure
 
   # Node.js backend. The frontend's Settings screen stores the backend URL
@@ -32,7 +34,7 @@ services:
   # "http://<umbrel-ip-or-hostname>:1337" in that Settings screen after
   # first install.
   server:
-    build: ./server
+    image: ghcr.io/rubtatex/slvctrlplus-server:latest
     restart: on-failure
     # network_mode: host + privileged: true together reproduce the same
     # hardware access the upstream install-rpi.sh script gets when it runs

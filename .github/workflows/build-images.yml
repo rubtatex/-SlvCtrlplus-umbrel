@@ -1,0 +1,64 @@
+name: Build & push SlvCtrl+ images
+
+# Builds multi-arch (amd64 + arm64) images from slvctrlplus/server/Dockerfile
+# and slvctrlplus/frontend/Dockerfile, and pushes them to GitHub Container
+# Registry (ghcr.io). This replaces the `build:` directives umbrelOS's app
+# installer doesn't support — umbrelOS only pulls pre-built images, it does
+# not build Dockerfiles itself.
+#
+# Uses the repo's automatic GITHUB_TOKEN, no secrets to configure. After the
+# first successful run, go to your GitHub profile/org -> Packages, open
+# each of "slvctrlplus-server" and "slvctrlplus-frontend", and set their
+# visibility to Public (umbrelOS pulls anonymously, without credentials).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "slvctrlplus/server/**"
+      - "slvctrlplus/frontend/**"
+      - ".github/workflows/build-images.yml"
+  workflow_dispatch: {}
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: slvctrlplus-server
+            context: slvctrlplus/server
+          - name: slvctrlplus-frontend
+            context: slvctrlplus/frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for arm64 builds on amd64 runners)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.name }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.name }}:${{ github.sha }}
