@@ -1,183 +1,210 @@
-# SlvCtrl+ pour Umbrel 2.0 (umbrelOS)
+# SlvCtrl+ for Umbrel
 
-Conversion non-officielle du script `install-rpi.sh` de SlvCtrl+ en app Umbrel.
+An unofficial [umbrelOS](https://umbrel.com) (Umbrel 2.0) community app store that packages
+[SlvCtrl+](https://github.com/SlvCtrlPlus) — a self-hosted server and web UI for controlling
+serial, USB and Bluetooth LE hardware devices.
+
+It is a port of the upstream `install-rpi.sh` script, which installs SlvCtrl+ directly on a
+Raspberry Pi, into a containerized Umbrel app.
+
+> **Note:** This project is not affiliated with the SlvCtrl+ or Umbrel teams.
+
+## Contents
+
+- [How it works](#how-it-works)
+- [Repository layout](#repository-layout)
+- [Setup](#setup)
+  - [1. Publish the Docker images](#1-publish-the-docker-images)
+  - [2. Add the app store to Umbrel](#2-add-the-app-store-to-umbrel)
+  - [3. Configure the backend URL](#3-configure-the-backend-url)
+- [Hardware access](#hardware-access)
+- [Updating](#updating)
+- [Troubleshooting](#troubleshooting)
+- [Building locally](#building-locally)
+- [Submitting to the official Umbrel App Store](#submitting-to-the-official-umbrel-app-store)
+
+## How it works
+
+SlvCtrl+ does not publish official Docker images, and umbrelOS never builds Dockerfiles
+itself — it only pulls prebuilt images. This repository bridges the gap:
+
+1. A GitHub Actions workflow builds the server and frontend images from the official
+   SlvCtrl+ release tarballs (the same artifacts `install-rpi.sh` downloads).
+2. The images are built for `linux/amd64` and `linux/arm64` and pushed to the GitHub
+   Container Registry (`ghcr.io`).
+3. umbrelOS pulls those images when you install the app from this community store.
+
+The app runs three services:
+
+| Service     | Role                                                                      |
+| ----------- | ------------------------------------------------------------------------- |
+| `app_proxy` | Umbrel's reverse proxy, routes the app's main page to the frontend        |
+| `frontend`  | Vue web UI served by nginx (unprivileged)                                 |
+| `server`    | Node.js backend on port `1337`, with access to serial/USB/Bluetooth       |
+
+## Repository layout
 
 ```
 .
-├── .github/workflows/build-images.yml   # construit + pousse les images sur GHCR
-├── README.md
+├── .github/workflows/build-images.yml   # Builds and pushes images to GHCR
+├── umbrel-app-store.yml                 # Community app store manifest
 └── slvctrlplus/
-    ├── umbrel-app.yml       # manifeste de l'app (icône incluse)
-    ├── icon.svg             # icône de l'app
-    ├── docker-compose.yml   # 3 services : app_proxy, frontend, server
-    ├── server/Dockerfile    # backend Node.js (télécharge le dist.tar.gz officiel)
+    ├── umbrel-app.yml                   # App manifest
+    ├── icon.svg                         # App icon
+    ├── docker-compose.yml               # app_proxy, frontend, server
+    ├── server/Dockerfile                # Node.js backend (official dist.tar.gz)
     └── frontend/
-        ├── Dockerfile       # frontend Vue, servi par nginx
+        ├── Dockerfile                   # Vue frontend served by nginx
         └── nginx.conf
 ```
 
-## Mise à jour : le serveur plantait au démarrage (libasound.so.2)
+## Setup
 
-Après l'install réussie, le frontend affichait "Cannot connect to server" en
-boucle. Cause : `slvctrlplus_server_1` plantait immédiatement au démarrage
-(rien n'écoutait sur le port 1337) avec :
+### 1. Publish the Docker images
+
+This only needs to be done once.
+
+1. Fork or push this repository to a **public** GitHub repository. umbrelOS pulls images
+   anonymously, so the images must be publicly accessible.
+2. Replace the `OWNER` / `REPO` placeholders with your GitHub username (lowercase) and
+   repository name:
+   - `slvctrlplus/docker-compose.yml`
+
+     ```yaml
+     image: ghcr.io/<owner>/slvctrlplus-server:latest
+     image: ghcr.io/<owner>/slvctrlplus-frontend:latest
+     ```
+
+   - `slvctrlplus/umbrel-app.yml`
+
+     ```yaml
+     icon: https://raw.githubusercontent.com/<owner>/<repo>/main/slvctrlplus/icon.svg
+     ```
+
+3. Push to `main`. The **Build & push SlvCtrl+ images** workflow runs automatically when
+   files under `slvctrlplus/server/`, `slvctrlplus/frontend/` or the workflow itself change.
+   You can also start it manually from **Actions → Build & push SlvCtrl+ images → Run
+   workflow**. No secrets are required; it uses the built-in `GITHUB_TOKEN`.
+4. Once the workflow succeeds, go to your GitHub profile → **Packages**, open both
+   `slvctrlplus-server` and `slvctrlplus-frontend`, then **Package settings → Change
+   visibility → Public**.
+
+   > This step is easy to forget. Without it, umbrelOS cannot download the images and the
+   > installation fails.
+
+### 2. Add the app store to Umbrel
+
+1. In umbrelOS, open **Settings → App Store → Add community app store**.
+2. Paste the URL of your GitHub repository.
+3. **SlvCtrl+** appears in the new store — install it like any other app.
+
+The `umbrel-app-store.yml` file at the repository root is required by umbrelOS and is
+already included.
+
+### 3. Configure the backend URL
+
+The SlvCtrl+ web UI does **not** reach the server through the app's main page. It stores
+the backend URL in the browser's `localStorage` and talks to the server directly over
+REST and WebSocket on port `1337`. This is how the upstream frontend works, not a
+limitation of this package.
+
+After installing, open the app, go to **Settings**, and set the backend URL to:
 
 ```
-Error: libasound.so.2: cannot open shared object file: No such file or directory
-    at ... (/app/node_modules/speaker/index.js:9:42)
+http://<umbrel-ip-or-hostname>:1337
 ```
 
-Le module natif du paquet `speaker` (sortie audio) a besoin d'ALSA au
-runtime — une bibliothèque système, pas une dépendance npm. `server/Dockerfile`
-installe maintenant `libasound2`, `libusb-1.0-0`, `libudev1`, `libbluetooth3`
-et `libdbus-1-3` (les mêmes libs couvrent aussi `usb` et
-`@stoprocent/noble`, qui auraient planté pareil dès leur premier usage).
+Nothing will work until this is set.
 
-**Pour appliquer le correctif** : remplace `server/Dockerfile` dans ton repo
-par la version mise à jour, commit + push sur `main` (l'Action se relance
-automatiquement), puis une fois l'Action verte, force Umbrel à retélécharger
-l'image (un simple "Restart" ne suffit pas, Docker ne re-pull pas tout seul
-une image `:latest` déjà présente localement) :
+## Hardware access
+
+The `server` service runs with `privileged: true` and `network_mode: host`, reproducing
+the access the upstream script gets when installed directly on the host:
+
+- **`privileged: true`** exposes host device nodes (USB-serial adapters, GPIO UART,
+  generic USB).
+- **`network_mode: host`** lets Bluetooth LE talk to BlueZ over the host's D-Bus/HCI
+  socket, which Docker cannot bridge into an isolated network namespace. The official
+  `ee-gateway` Umbrel app uses the same approach for Bluetooth.
+
+This is broader access than a typical Umbrel app needs, and is justified only because
+SlvCtrl+ exists to talk to local hardware. If you only use a USB-serial adapter and never
+Bluetooth, `docker-compose.yml` documents a more restricted alternative without host
+networking.
+
+**GPIO serial (hardware UART):** if your device is wired to the Raspberry Pi's GPIO serial
+pins rather than plugged in over USB, enable the UART once on the host, outside of Umbrel:
 
 ```bash
-ssh -p 40000 antoine@192.168.1.137
-cd /home/umbrel/umbrel/app-data/slvctrlplus
-sudo docker compose pull server
-sudo docker compose up -d --force-recreate --no-deps server
-sudo docker logs --tail 50 slvctrlplus_server_1
+sudo raspi-config   # Interface Options → Serial Port
 ```
 
-Le dernier `docker logs` doit maintenant rester silencieux (pas de crash
-loop) — vérifie aussi `sudo ss -tlnp | grep 1337` pour confirmer que le port
-écoute.
+## Updating
 
-## Ce qui a changé depuis la première version
-
-Ton install a échoué avec :
-
-```
-Command failed with exit code 1: /opt/umbreld/source/modules/apps/legacy-compat/app-script install slvctrlplus
-```
-
-Cause la plus probable : la première version utilisait `build: ./server` /
-`build: ./frontend` dans `docker-compose.yml`. **umbrelOS ne build jamais de
-Dockerfile lui-même, il ne fait que `pull` des images déjà construites.**
-Sans `image:`, l'étape de pull échoue et `app-script install` plante — sans
-forcément détailler pourquoi dans le message que tu as collé.
-
-La solution : un `Dockerfile` reste nécessaire (ni slvctrlplus-server ni
-slvctrlplus-frontend ne publient d'image officielle), mais il est maintenant
-construit **en dehors** d'Umbrel, par une GitHub Action qui pousse le
-résultat sur `ghcr.io`. `docker-compose.yml` ne fait plus que `pull` ces
-images, comme umbrelOS s'y attend.
-
-J'ai aussi ajouté `icon.svg` + le champ `icon:` dans `umbrel-app.yml` (les
-app stores communautaires l'affichent, contrairement au store officiel qui
-héberge ses icônes ailleurs).
-
-Si l'install replante quand même après ces changements, le message collé ici
-est juste l'erreur "enveloppe" — la vraie cause est dans les logs d'umbreld.
-Récupère-les en SSH pour qu'on puisse creuser :
+umbrelOS does not re-pull a `:latest` image that already exists locally, so a simple
+**Restart** will not pick up new images. After the workflow has published a new build,
+force a pull over SSH:
 
 ```bash
-ssh -p 40000 antoine@192.168.1.137
+cd ~/umbrel/app-data/slvctrlplus
+sudo docker compose pull
+sudo docker compose up -d --force-recreate
+```
+
+## Troubleshooting
+
+### Installation fails with `app-script install slvctrlplus` exit code 1
+
+This message is only the outer error. Common causes:
+
+- The images are not published yet, or are still **private** on GHCR (see
+  [step 1](#1-publish-the-docker-images)).
+- The `OWNER` placeholder in `docker-compose.yml` was not replaced.
+
+The real cause is in the umbreld logs:
+
+```bash
 tail -n 200 ~/umbrel/logs/umbreld.log
-# ou, si umbreld tourne lui-même en conteneur :
-docker logs --tail 200 umbreld
 ```
 
-## Comment publier les images (étape à faire une seule fois)
+### The UI keeps showing "Cannot connect to server"
 
-1. Crée un repo GitHub **public** (GHCR anonyme a besoin que le repo/package
-   soit public, sinon umbrelOS ne pourra pas `pull` sans identifiants).
-2. Mets-y tout le contenu de cette archive (`.github/`, `README.md`,
-   `slvctrlplus/`) à la racine du repo.
-3. Dans `slvctrlplus/docker-compose.yml` et `slvctrlplus/umbrel-app.yml`,
-   remplace `OWNER` (et `REPO` pour l'icône) par ton pseudo/org GitHub et le
-   nom du repo, par exemple :
+1. Make sure the backend URL is set in the app's **Settings** (see
+   [step 3](#3-configure-the-backend-url)).
+2. Check that the server is running and listening:
 
-   ```yaml
-   image: ghcr.io/antoine/slvctrlplus-server:latest
+   ```bash
+   sudo docker logs --tail 50 slvctrlplus_server_1
+   sudo ss -tlnp | grep 1337
    ```
 
-   ```yaml
-   icon: https://raw.githubusercontent.com/antoine/mon-repo/main/slvctrlplus/icon.svg
-   ```
+If the logs show `libasound.so.2: cannot open shared object file`, you are running an old
+server image. The current `server/Dockerfile` installs the system libraries required by the
+native Node addons (`libasound2`, `libusb-1.0-0`, `libudev1`, `libbluetooth3`,
+`libdbus-1-3`). Rebuild the images and [update](#updating).
 
-4. Pousse sur la branche `main`. L'Action `build-images.yml` se déclenche
-   automatiquement (ou lance-la à la main depuis l'onglet *Actions* →
-   *Build & push SlvCtrl+ images* → *Run workflow*). Elle construit les deux
-   images en `linux/amd64` + `linux/arm64` et les pousse sur
-   `ghcr.io/<toi>/slvctrlplus-server` et `-frontend`.
-5. Une fois l'Action verte : va dans ton profil/org GitHub → *Packages*,
-   ouvre chacun des deux packages → *Package settings* → *Change visibility*
-   → **Public**. C'est l'étape qu'on oublie le plus souvent, et sans elle
-   umbrelOS ne pourra pas télécharger l'image.
+## Building locally
 
-## Comment l'installer dans Umbrel
-
-1. Dans umbrelOS : *Paramètres → App Store → Ajouter un app store
-   communautaire*, colle l'URL de ton repo GitHub (celui de l'étape
-   précédente — pas besoin d'un `umbrel-app-store.yml` séparé si tu n'as que
-   cette seule app dedans... en fait si, umbrelOS l'exige à la racine du
-   repo : ajoute-le s'il n'existe pas déjà :
-
-   ```yaml
-   id: "mon-store"
-   name: "Mon App Store"
-   ```
-
-2. L'app "SlvCtrl+" apparaît dans ce store, installe-la normalement.
-
-## ⚠️ Point important : l'URL du backend
-
-Le frontend ne passe PAS par la page principale de l'app pour parler au
-serveur : il retient l'URL du backend dans le `localStorage` du navigateur et
-appelle directement `http://<ip>:1337` en REST + WebSocket (comportement du
-frontend lui-même, pas une limitation de ce packaging).
-
-**Après l'installation**, ouvre l'app, va dans *Settings*, et renseigne :
-
-```
-http://<ip-ou-nom-de-ton-Umbrel>:1337
-```
-
-## ⚠️ Accès matériel (série / USB / Bluetooth)
-
-Le service `server` tourne avec `privileged: true` + `network_mode: host`
-pour reproduire l'accès que le script bash donnait en installant directement
-sur le Pi (accès aux ports série/USB, et au Bluetooth via D-Bus/BlueZ, que
-Docker ne peut pas "pontuer" proprement en réseau isolé — c'est exactement le
-même schéma que l'app officielle "ee-gateway" du store Umbrel pour son
-service Bluetooth). C'est documenté en commentaire dans `docker-compose.yml`,
-avec une variante plus restreinte (sans réseau host) si tu n'as besoin que du
-port série/USB, pas du Bluetooth.
-
-Si ton appareil est câblé sur les pins GPIO série du Pi (UART matériel, pas
-un adaptateur USB), il faut toujours activer l'UART une fois, côté host,
-hors Umbrel : `sudo raspi-config` → *Interface Options* → *Serial Port*
-(comme le faisait `raspi-config nonint do_serial_hw 0` dans le script
-original — Umbrel ne peut pas le faire à ta place).
-
-## Test rapide en SSH, hors Umbrel (optionnel)
-
-Pour vérifier que les `Dockerfile` buildent bien avant de passer par GitHub
-Actions :
+To check that the Dockerfiles build before going through GitHub Actions:
 
 ```bash
-scp -P 40000 -r slvctrlplus antoine@192.168.1.137:~/slvctrlplus
-ssh -p 40000 antoine@192.168.1.137
-cd ~/slvctrlplus
-APP_DATA_DIR=./data docker compose -f docker-compose.yml build \
-  --build-arg SLVCTRLPLUS_SERVER_REF=latest server
+cd slvctrlplus
+docker build -t slvctrlplus-server server
+docker build -t slvctrlplus-frontend frontend
 ```
 
-(note le `-p` pour le port SSH — pas `host:port`, comme discuté plus haut).
+The server build pulls the latest upstream release by default. To pin a specific version
+for reproducible builds:
 
-## Pour une vraie soumission à l'App Store officiel Umbrel
+```bash
+docker build --build-arg SLVCTRLPLUS_SERVER_REF=v1.4.0 -t slvctrlplus-server server
+```
 
-Le repo officiel `getumbrel/umbrel-apps` demande en plus des images déjà
-épinglées par digest (`image:...@sha256:...`, pas juste `:latest`), et que
-`privileged: true` / `network_mode: host` soient solidement justifiés en
-review (voir `.agents/skills/umbrel-package-app/SKILL.md` de ce repo). Pas
-nécessaire pour un usage personnel sur ton propre Umbrel.
+## Submitting to the official Umbrel App Store
+
+This package is intended for personal use through a community store. A submission to
+[`getumbrel/umbrel-apps`](https://github.com/getumbrel/umbrel-apps) would additionally
+require:
+
+- Images pinned by digest (`image: ...@sha256:...`) rather than `:latest`.
+- A strong justification for `privileged: true` and `network_mode: host` during review.
